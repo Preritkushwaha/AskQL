@@ -1,0 +1,7 @@
+streamlit
+google-generativeai
+sqlalchemy
+psycopg[binary]
+pandas
+plotly
+python-dotenv
