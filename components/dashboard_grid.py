@@ -47,7 +47,11 @@ def render_dashboard_grid(results: list):
             df = r['df']
             
             # Try chart first
-            chart_type_hint = st.session_state['gemini_service'].suggest_chart_type(r['title'], list(df.columns)) if 'gemini_service' in st.session_state else r['title']
+            chart_type_hint = r.get('chart_type', 'none')
+            # If the LLM didn't provide a valid chart type or we need a fallback, we could still use heuristic
+            if chart_type_hint not in ['bar', 'pie', 'line', 'scatter', 'none']:
+                chart_type_hint = st.session_state['gemini_service'].suggest_chart_type(r['title'], list(df.columns)) if 'gemini_service' in st.session_state else r['title']
+                
             fig = VisualizationService.generate_chart(df, chart_type_hint)
             if fig:
                 # Update layout for smaller container

@@ -37,7 +37,7 @@ Database Schema:
 
 Rules:
 - Generate ONLY a valid JSON array of objects.
-- Each object must have a "title" (string, short description of the chart/metric) and a "sql" (string, the SELECT query).
+- Each object must have a "title" (string, short description of the chart/metric), a "chart_type" (string, one of 'bar', 'pie', 'line', 'scatter', 'none' - 'none' for a single scalar value), and a "sql" (string, the SELECT query).
 - Only generate SELECT queries. Never generate destructive queries (e.g., DROP, DELETE, UPDATE, ALTER, INSERT).
 - Use PostgreSQL syntax unless told otherwise.
 - Output ONLY the raw JSON array. Do not wrap in markdown blocks like ```json ... ```.

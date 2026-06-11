@@ -82,9 +82,8 @@ class VisualizationService:
             
             is_percentage = 0 < total <= 100.1 and df[y_col].min() >= 0
             is_distribution_query = "distribution" in query_lower or "share" in query_lower or "proportion" in query_lower
-            is_few_categories = num_categories <= 5 and df[y_col].min() >= 0
             
-            if is_percentage or is_distribution_query or is_few_categories:
+            if is_percentage or is_distribution_query:
                 # use pie
                 fig = px.pie(df, names=x_col, values=y_col, title=f"Distribution of {y_col} by {x_col}")
             else:

@@ -37,6 +37,8 @@ if 'connect_trigger' not in st.session_state:
     st.session_state['connect_trigger'] = False
 if 'chat_history' not in st.session_state:
     st.session_state['chat_history'] = []
+if 'query_cache' not in st.session_state:
+    st.session_state['query_cache'] = {}
 
 def main():
     st.title("AskQL")
@@ -51,6 +53,7 @@ def main():
             with st.spinner("Connecting to database..."):
                 st.session_state['db_service'].connect(st.session_state['db_url'])
                 st.session_state['connected'] = True
+                st.session_state.pop('schema_summary', None)
             st.toast("Successfully connected to the database!")
         except Exception as e:
             st.error(f"Connection error: {e}")
@@ -86,6 +89,13 @@ def main():
                         render_chart(item['fig'])
                     if item.get('insight'):
                         st.info(f"**AI Insights:** {item['insight']}", icon="🤖")
+                    elif item.get('df') is not None and not item['df'].empty:
+                        if st.button("Generate Insights", key=f"insight_btn_{i}"):
+                            with st.spinner("Analyzing data trends..."):
+                                prev_q = st.session_state['chat_history'][i-1]['content'] if i > 0 else ""
+                                insight = st.session_state['insight_service'].generate_insight(prev_q, item['df'])
+                                st.session_state['chat_history'][i]['insight'] = insight
+                                st.rerun()
 
         # Chat Input
         user_question = render_chat_input()
@@ -103,13 +113,18 @@ def main():
                         schema_context = schema_service.get_schema_summary()
                         
                         # Prepare history for Gemini: only text parts
-                        gemini_history = [{"role": m["role"], "content": m["content"] if m["role"] == "user" else m["sql"]} for m in st.session_state['chat_history'][:-1]]
-                        
-                        generated_sql = st.session_state['gemini_service'].generate_sql(
-                            question=user_question, 
-                            schema_context=schema_context,
-                            history=gemini_history
-                        )
+                        if user_question in st.session_state['query_cache']:
+                            generated_sql = st.session_state['query_cache'][user_question]
+                            st.toast("Using cached SQL query!")
+                        else:
+                            gemini_history = [{"role": m["role"], "content": m["content"] if m["role"] == "user" else m["sql"]} for m in st.session_state['chat_history'][:-1]]
+                            
+                            generated_sql = st.session_state['gemini_service'].generate_sql(
+                                question=user_question, 
+                                schema_context=schema_context,
+                                history=gemini_history
+                            )
+                            st.session_state['query_cache'][user_question] = generated_sql
                         
                         st.markdown("Generated SQL")
                         st.code(generated_sql, language="sql")
@@ -136,18 +151,13 @@ def main():
                         if fig:
                             render_chart(fig)
                         
-                        # 5. Generate AI Insights
-                        with st.spinner("Analyzing data trends..."):
-                            insight = st.session_state['insight_service'].generate_insight(user_question, df)
-                            st.info(f"**AI Insights:** {insight}")
-
                         # Save to history
                         st.session_state['chat_history'].append({
                             'role': 'assistant',
                             'sql': generated_sql,
                             'df': df,
                             'fig': fig,
-                            'insight': insight
+                            'insight': None
                         })
                         
                         # Rerun to cleanly render the state
@@ -177,10 +187,11 @@ def main():
                         for idx, q in enumerate(queries):
                             title = q.get("title", f"Widget {idx+1}")
                             sql = q.get("sql", "")
+                            chart_type = q.get("chart_type", "none")
                             try:
                                 SQLValidator.validate(sql)
                                 df = st.session_state['db_service'].execute_query(sql)
-                                results.append({"title": title, "df": df})
+                                results.append({"title": title, "df": df, "chart_type": chart_type})
                             except Exception as e:
                                 st.warning(f"Failed to load '{title}': {str(e)}")
                                 

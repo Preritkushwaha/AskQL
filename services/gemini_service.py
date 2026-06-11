@@ -1,17 +1,18 @@
 import os
 import google.generativeai as genai
-from utils.constants import GEMINI_PROMPT_TEMPLATE
-from utils.helpers import clean_sql
+from utils.constants import GEMINI_PROMPT_TEMPLATE, DASHBOARD_PROMPT_TEMPLATE
+from utils.helpers import clean_sql, retry_with_backoff
 
 class GeminiService:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
         if self.api_key:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
+            self.model = genai.GenerativeModel('gemini-flash-latest')
         else:
             self.model = None
 
+    @retry_with_backoff(max_retries=3, initial_delay=2.0)
     def generate_sql(self, question: str, schema_context: str, history: list = None) -> str:
         """
         Uses Gemini API to generate SQL from natural language question.
@@ -49,6 +50,7 @@ class GeminiService:
             except Exception as e:
                 raise Exception(f"Failed to generate SQL from Gemini: {str(e)}")
 
+    @retry_with_backoff(max_retries=3, initial_delay=2.0)
     def generate_dashboard_sqls(self, request: str, schema_context: str) -> list:
         """
         Uses Gemini API to generate multiple SQL queries for a dashboard layout.
@@ -81,34 +83,25 @@ class GeminiService:
 
     def suggest_chart_type(self, question: str, columns: list) -> str:
         """
-        Uses Gemini API to suggest the most suitable chart type for the given question and data columns.
+        Suggests the most suitable chart type using a fast, rule-based heuristic.
+        Rules based on previous prompt to avoid API call costs.
         """
-        if not self.model:
-            return "none"
-            
-        prompt = f"""
-        You are an expert data visualization analyst.
-        Given the user question: '{question}' and the resulting data columns: {columns}, what is the best visualization technique to use? 
+        q_lower = question.lower()
         
-        Follow these strict chart selection rules:
-        - 'pie': Use when the user asks for 'distribution', 'share', 'percentage', 'breakdown', or 'proportion' of a whole. It is especially suitable for categorical data representing parts of a whole (e.g., gender, status).
-        - 'line': Use when tracking changes over time, dates, or continuous periods (e.g., 'trend', 'over time', 'monthly', 'yearly', 'history').
-        - 'scatter': Use when comparing two independent numerical variables to find correlation or clusters (e.g., 'relationship', 'vs', 'correlation').
-        - 'bar': Use when comparing independent quantities across different categories (e.g., 'by region', 'top 10', 'compare', 'count by department'). This is the default for categorical vs numeric data unless 'distribution' is heavily implied.
-        - 'none': Use if the result is a single scalar value (e.g., 'what is the total revenue') or if a chart simply does not make sense for the data.
-
-        Choose exactly one from: [bar, pie, line, scatter, none]. Reply with ONLY the chart type word in lowercase.
-        """
-        
-        try:
-            response = self.model.generate_content(prompt)
-            chart = response.text.strip().lower()
+        # Check for pie chart triggers
+        if any(w in q_lower for w in ['distribution', 'share', 'percentage', 'breakdown', 'proportion', 'pie']):
+            return 'pie'
             
-            for valid_chart in ["bar", "pie", "line", "scatter"]:
-                if valid_chart in chart:
-                    return valid_chart
-            print(f"DEBUG LLM Output: {chart}")
-            return "none"
-        except Exception as e:
-            print(f"DEBUG LLM Exception: {e}")
-            return "none"
+        # Check for line chart triggers
+        if any(w in q_lower for w in ['trend', 'over time', 'monthly', 'yearly', 'history', 'daily', 'line']):
+            return 'line'
+            
+        # Check for scatter triggers
+        if any(w in q_lower for w in ['relationship', 'vs', 'correlation', 'scatter']):
+            return 'scatter'
+            
+        # Fallback to bar if comparing categories or simply multiple columns
+        if len(columns) >= 2:
+            return 'bar'
+            
+        return 'none'
