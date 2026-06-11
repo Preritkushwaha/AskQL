@@ -1,5 +1,7 @@
 # AskQL
 
+Live Link: https://askqldatavisualization.streamlit.app/
+
 AI-Powered Text-to-SQL & Data Visualization Platform. AskQL allows you to interact with databases using natural language instead of writing SQL manually. 
 
 ## Features
