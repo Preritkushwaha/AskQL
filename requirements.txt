@@ -1,7 +1,8 @@
 streamlit
 google-generativeai
 sqlalchemy
-psycopg[binary]
+psycopg2-binary
 pandas
 plotly
 python-dotenv
+tabulate

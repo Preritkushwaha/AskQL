@@ -6,7 +6,7 @@ def render_metric_cards(df: pd.DataFrame):
     If the result is a single row with aggregate metrics, render them as cards.
     """
     if df is not None and not df.empty and len(df) == 1:
-        st.markdown("### 🔢 Key Metrics")
+        st.markdown("Key Metrics")
         numeric_cols = df.select_dtypes(include=['number']).columns
         
         if len(numeric_cols) > 0:

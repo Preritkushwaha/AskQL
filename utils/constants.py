@@ -28,5 +28,23 @@ Data Summary:
 {data_summary}
 """
 
+DASHBOARD_PROMPT_TEMPLATE = """
+You are an expert data analyst and SQL generator.
+Given a broad request (like "Generate a sales dashboard") and a database schema, your task is to generate a JSON array of multiple SQL queries that would power various charts and metrics for this dashboard.
+
+Database Schema:
+{schema}
+
+Rules:
+- Generate ONLY a valid JSON array of objects.
+- Each object must have a "title" (string, short description of the chart/metric) and a "sql" (string, the SELECT query).
+- Only generate SELECT queries. Never generate destructive queries (e.g., DROP, DELETE, UPDATE, ALTER, INSERT).
+- Use PostgreSQL syntax unless told otherwise.
+- Output ONLY the raw JSON array. Do not wrap in markdown blocks like ```json ... ```.
+
+Request:
+{request}
+"""
+
 ALLOWED_SQL_PREFIXES = ["select", "with"]
 FORBIDDEN_SQL_KEYWORDS = ["drop", "delete", "update", "alter", "insert", "truncate", "grant", "revoke", "commit", "rollback"]

@@ -5,7 +5,7 @@ def render_query_input() -> str:
     Renders the natural language query input box.
     Returns the user's question.
     """
-    st.markdown("### 💬 Ask your Data")
+    st.markdown("Ask your Data")
     
     question = st.text_area(
         "Enter your question in plain English:",
@@ -25,9 +25,9 @@ def render_query_input() -> str:
     for i, col in enumerate(cols):
         with col:
             # We use markdown as clickable elements or just text hints
-            st.caption(f"💡 *{sample_queries[i]}*")
+            st.caption(f"*{sample_queries[i]}*")
 
-    submit = st.button("Generate & Execute SQL 🚀", type="primary", use_container_width=True)
+    submit = st.button("Generate & Execute SQL", type="primary", use_container_width=True)
     
     if submit and question:
         return question.strip()

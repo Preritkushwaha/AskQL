@@ -20,7 +20,12 @@ def render_sidebar():
                 if not all([host, port, dbname, user, password]):
                     st.error("Please fill in all connection details.")
                 else:
-                    db_url = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+                    import urllib.parse
+                    enc_user = urllib.parse.quote(user)
+                    enc_password = urllib.parse.quote(password)
+                    enc_host = urllib.parse.quote(host)
+                    enc_dbname = urllib.parse.quote(dbname)
+                    db_url = f"postgresql://{enc_user}:{enc_password}@{enc_host}:{port}/{enc_dbname}"
                     st.session_state['db_url'] = db_url
                     st.session_state['connect_trigger'] = True
 
@@ -36,7 +41,7 @@ def render_sidebar():
                     st.session_state['connect_trigger'] = True
 
         st.markdown("---")
-        st.markdown("### ℹ️ About")
+        st.markdown("About")
         st.markdown(
             "**AskQL** lets you query your database using natural language. "
             "Simply connect and start asking questions!"

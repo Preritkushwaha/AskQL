@@ -6,7 +6,8 @@ load_dotenv()
 
 from utils.helpers import setup_page_config
 from components.sidebar import render_sidebar
-from components.query_input import render_query_input
+from components.chatbot import render_chat_input
+from components.dashboard_grid import render_dashboard_grid
 from components.result_table import render_result_table
 from components.charts import render_chart
 from components.metric_cards import render_metric_cards
@@ -34,10 +35,12 @@ if 'db_url' not in st.session_state:
     st.session_state['db_url'] = None
 if 'connect_trigger' not in st.session_state:
     st.session_state['connect_trigger'] = False
+if 'chat_history' not in st.session_state:
+    st.session_state['chat_history'] = []
 
 def main():
-    st.title("AskQL 🧠📊")
-    st.markdown("### The AI-Powered Text-to-SQL Platform")
+    st.title("AskQL")
+    st.markdown("The AI-Powered Text-to-SQL Platform")
     
     # Sidebar
     render_sidebar()
@@ -48,7 +51,7 @@ def main():
             with st.spinner("Connecting to database..."):
                 st.session_state['db_service'].connect(st.session_state['db_url'])
                 st.session_state['connected'] = True
-            st.toast("Successfully connected to the database!", icon="✅")
+            st.toast("Successfully connected to the database!")
         except Exception as e:
             st.error(f"Connection error: {e}")
             st.session_state['connected'] = False
@@ -56,60 +59,138 @@ def main():
 
     # Main Application Area
     if not st.session_state['connected']:
-        st.info("👈 Please connect to a database using the sidebar to get started.")
+        st.info("Please connect to a database using the sidebar to get started.")
         return
 
     # Once connected
     schema_service = SchemaService(st.session_state['db_service'])
     
-    with st.expander("👁️ View Database Schema"):
+    with st.expander("View Database Schema"):
         schema_summary = schema_service.get_schema_summary()
         st.code(schema_summary, language="text")
 
-    # Query Input
-    user_question = render_query_input()
+    tab1, tab2 = st.tabs(["Chatbot", "Dashboard Builder"])
 
-    if user_question:
-        with st.spinner("🧠 Generating SQL..."):
-            try:
-                # 1. Generate SQL
-                schema_context = schema_service.get_schema_summary()
-                generated_sql = st.session_state['gemini_service'].generate_sql(
-                    question=user_question, 
-                    schema_context=schema_context
-                )
-                
-                st.markdown("### 📝 Generated SQL")
-                st.code(generated_sql, language="sql")
-                
-                # 2. Validate SQL
-                SQLValidator.validate(generated_sql)
-                
-                # 3. Execute SQL
-                with st.spinner("⏳ Executing Query..."):
-                    df = st.session_state['db_service'].execute_query(generated_sql)
-                
-                # 4. Render UI components for Results
-                st.markdown("---")
-                
-                # Metric Cards for scalar aggregations
-                render_metric_cards(df)
-                
-                # Render Data Table
-                render_result_table(df)
-                
-                # Render Charts
-                fig = VisualizationService.generate_chart(df)
-                if fig:
-                    render_chart(fig)
-                
-                # 5. Generate AI Insights
-                with st.spinner("💡 Analyzing data trends..."):
-                    insight = st.session_state['insight_service'].generate_insight(user_question, df)
-                    st.info(f"**AI Insights:** {insight}", icon="🤖")
+    with tab1:
+        # Render chat history
+        for i, item in enumerate(st.session_state['chat_history']):
+            with st.chat_message(item['role']):
+                if item['role'] == 'user':
+                    st.markdown(item['content'])
+                else:
+                    st.markdown(f"Generated SQL\n```sql\n{item.get('sql', '')}\n```")
+                    if item.get('df') is not None:
+                        render_metric_cards(item['df'])
+                        render_result_table(item['df'], key=f"hist_table_{i}")
+                    if item.get('fig') is not None:
+                        render_chart(item['fig'])
+                    if item.get('insight'):
+                        st.info(f"**AI Insights:** {item['insight']}", icon="🤖")
 
-            except Exception as e:
-                st.error(f"Error processing your request: {str(e)}")
+        # Chat Input
+        user_question = render_chat_input()
+
+        if user_question:
+            # Append and render user message
+            st.session_state['chat_history'].append({'role': 'user', 'content': user_question})
+            with st.chat_message("user"):
+                st.markdown(user_question)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Generating SQL..."):
+                    try:
+                        # 1. Generate SQL
+                        schema_context = schema_service.get_schema_summary()
+                        
+                        # Prepare history for Gemini: only text parts
+                        gemini_history = [{"role": m["role"], "content": m["content"] if m["role"] == "user" else m["sql"]} for m in st.session_state['chat_history'][:-1]]
+                        
+                        generated_sql = st.session_state['gemini_service'].generate_sql(
+                            question=user_question, 
+                            schema_context=schema_context,
+                            history=gemini_history
+                        )
+                        
+                        st.markdown("Generated SQL")
+                        st.code(generated_sql, language="sql")
+                        
+                        # 2. Validate SQL
+                        SQLValidator.validate(generated_sql)
+                        
+                        # 3. Execute SQL
+                        with st.spinner("Executing Query..."):
+                            df = st.session_state['db_service'].execute_query(generated_sql)
+                        
+                        # 4. Render UI components for Results
+                        st.markdown("---")
+                        
+                        # Metric Cards for scalar aggregations
+                        render_metric_cards(df)
+                        
+                        # Render Data Table
+                        render_result_table(df, key=f"curr_table_{len(st.session_state['chat_history'])}")
+                        
+                        # Render Charts
+                        chart_type_hint = st.session_state['gemini_service'].suggest_chart_type(user_question, list(df.columns))
+                        fig = VisualizationService.generate_chart(df, chart_type_hint)
+                        if fig:
+                            render_chart(fig)
+                        
+                        # 5. Generate AI Insights
+                        with st.spinner("Analyzing data trends..."):
+                            insight = st.session_state['insight_service'].generate_insight(user_question, df)
+                            st.info(f"**AI Insights:** {insight}")
+
+                        # Save to history
+                        st.session_state['chat_history'].append({
+                            'role': 'assistant',
+                            'sql': generated_sql,
+                            'df': df,
+                            'fig': fig,
+                            'insight': insight
+                        })
+                        
+                        # Rerun to cleanly render the state
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"Error processing your request: {str(e)}")
+
+    with tab2:
+        st.markdown("Build an Auto-Dashboard")
+        dashboard_prompt = st.text_area("Describe the dashboard you want:", placeholder="e.g., Generate a comprehensive sales dashboard with monthly trends and region breakdown.")
+        
+        if st.button("Generate Dashboard", type="primary"):
+            if dashboard_prompt:
+                with st.spinner("Designing dashboard layout and generating SQL queries..."):
+                    try:
+                        schema_context = schema_service.get_schema_summary()
+                        queries = st.session_state['gemini_service'].generate_dashboard_sqls(
+                            request=dashboard_prompt, 
+                            schema_context=schema_context
+                        )
+                        
+                        results = []
+                        st.success(f"Generated {len(queries)} widgets!")
+                        
+                        # Execute each query
+                        for idx, q in enumerate(queries):
+                            title = q.get("title", f"Widget {idx+1}")
+                            sql = q.get("sql", "")
+                            try:
+                                SQLValidator.validate(sql)
+                                df = st.session_state['db_service'].execute_query(sql)
+                                results.append({"title": title, "df": df})
+                            except Exception as e:
+                                st.warning(f"Failed to load '{title}': {str(e)}")
+                                
+                        if results:
+                            render_dashboard_grid(results)
+                            
+                    except Exception as e:
+                        st.error(f"Error generating dashboard: {str(e)}")
+            else:
+                st.warning("Please enter a description for the dashboard.")
 
 if __name__ == "__main__":
     main()
