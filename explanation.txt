@@ -1,0 +1,255 @@
+================================================================================
+                                 ASKQL
+                  THE AI-POWERED TEXT-TO-SQL PLATFORM
+                             SYSTEM EXPLANATION
+================================================================================
+
+This document provides a comprehensive, end-to-end overview of the AskQL application.
+It covers the architecture, technology stack, directory layout, internal code execution
+flows, services interconnection, and future extension plans from absolute scratch.
+
+---
+
+1. ARCHITECTURAL OVERVIEW & DESIGN PATTERNS
+================================================================================
+AskQL is structured as a monolithic Streamlit application written in Python. 
+
+* Streamlit Model: Streamlit runs a unified Python server that serves a dynamic, 
+  reactive web interface. The frontend (the HTML/JS rendered in the user's browser)
+  communicates directly with the backend Python process running on the server.
+* State Management: Managed using Streamlit's `st.session_state` to store database
+  connection URLs, driver instances, and current connection flags. This ensures state
+  persists between screen redraws and button clicks.
+* Service-Oriented Logic: Core responsibilities are decoupled into dedicated 
+  classes (services) under the `/services` folder, while presentation details 
+  are structured as functional components in the `/components` folder.
+
+---
+
+2. TECHNOLOGY STACK
+================================================================================
+* Core Framework: Streamlit (v1.x)
+* Database Connectivity: SQLAlchemy (for schema introspection & connection pooling),
+  psycopg[binary] (PostgreSQL client driver), and Python's built-in sqlite3 (via SQLAlchemy).
+* Large Language Model (LLM): Google Gemini (using the `google-generativeai` SDK, 
+  powered by `gemini-1.5-flash`).
+* Data & Analytics: Pandas (for DataFrame processing), Plotly Express & Plotly Graph 
+  Objects (for dynamic, interactive visual charts).
+* Configuration: Python-Dotenv (for loading environment variables from `.env`).
+
+---
+
+3. WORKSPACE DIRECTORY & FILE STRUCTURE
+================================================================================
+Below is the logical breakdown of the files and folders in the workspace:
+
+AskQL/
+├── .env                          # Configuration file for local keys (e.g., GEMINI_API_KEY)
+├── .env.example                  # Template for required environment variables
+├── requirements.txt              # Project package dependencies
+├── app.py                        # Application entrypoint & coordinator
+│
+├── components/                   # FRONTEND / PRESENTATION LAYER
+│   ├── charts.py                 # Renders the interactive Plotly visualizations
+│   ├── metric_cards.py           # Renders high-level KPI cards for aggregate rows
+│   ├── query_input.py            # Renders the Text Area and suggestions for user questions
+│   ├── result_table.py           # Renders the data grid and provides CSV export/download
+│   └── sidebar.py                # Renders connection form for SQLite / PostgreSQL
+│
+├── services/                     # BACKEND / BUSINESS LOGIC LAYER
+│   ├── database_service.py       # Handles database sessions and safe SQL executions
+│   ├── gemini_service.py         # Configures Gemini SDK and converts natural language to SQL
+│   ├── insight_service.py        # Generates human-readable explanations of results
+│   ├── schema_service.py         # Extracts schema metadata from the connected database
+│   ├── sql_validator.py          # Validates query safety (blocks destructive commands)
+│   └── visualization_service.py  # Selects optimal charts based on dataframe data types
+│
+└── utils/                        # UTILITY FUNCTIONS & CONFIGURATION CONSTANTS
+    ├── constants.py              # LLM system prompts and forbidden SQL keywords
+    └── helpers.py                # Text cleanup routines and Streamlit page settings
+
+---
+
+4. DETAILED FILE-BY-FILE FUNCTIONAL ANALYSIS
+================================================================================
+
+[A] Root Level Files:
+---------------------
+* app.py
+  - Acts as the central orchestrator (main entrypoint).
+  - Configures the page, initializes services inside `st.session_state`, controls
+    flow routing, and renders UI components inside the application window.
+* .env
+  - Houses secrets such as `GEMINI_API_KEY`.
+
+[B] UI Components (/components):
+--------------------------------
+* sidebar.py
+  - Renders forms in the left-hand panel. Supports two databases: SQLite and PostgreSQL.
+  - Generates the SQLAlchemy connection URI and stores it in `st.session_state['db_url']`,
+    triggering connection logic.
+* query_input.py
+  - Renders a multi-line `st.text_area` for natural language prompts.
+  - Suggests pre-defined query examples for quick testing.
+* result_table.py
+  - Uses `st.dataframe` to render tabular data.
+  - Embeds a `.to_csv()` converter for on-the-fly result spreadsheet downloads.
+* charts.py
+  - Receives Plotly `go.Figure` charts and renders them responsively via `st.plotly_chart`.
+* metric_cards.py
+  - Scans dataframes. If the dataframe contains only 1 row of numeric aggregations 
+    (e.g., SELECT COUNT(*), SUM(sales)), it renders them side-by-side as KPI cards.
+
+[C] Core Services (/services):
+------------------------------
+* database_service.py
+  - Uses SQLAlchemy's `create_engine` to instantiate database connections.
+  - Runs a test query (`SELECT 1`) to verify database health.
+  - Safely reads raw SQL queries and maps the rows directly into a Pandas `DataFrame`.
+* schema_service.py
+  - Inspects the connected database to pull tables, columns, and datatype schemas.
+  - Creates a compact text catalog format: "Table 'orders': id (INTEGER), customer_id (INTEGER)".
+* gemini_service.py
+  - Passes the database schema catalog and user question into the Gemini prompt template.
+  - Requests a clean SQL string back from `gemini-1.5-flash`.
+* sql_validator.py
+  - Parses the generated SQL string using regex tokenization.
+  - Raises exceptions if it finds destructive keywords (DELETE, UPDATE, DROP, ALTER)
+    or if the query is not a read-only request (SELECT/WITH).
+* visualization_service.py
+  - Analyzes column types (Datetime, Categorical, Numeric).
+  - Automatically maps:
+    * Datetime + Numeric -> Line Chart
+    * Categorical + Numeric (Percentage) -> Pie Chart
+    * Categorical + Numeric (General) -> Bar Chart
+    * Two Numeric -> Scatter Plot
+* insight_service.py
+  - Extracts the top 10 rows and summary statistics of the query result.
+  - Calls Gemini to compose a non-technical summary explaining the insights.
+
+[D] Utilities (/utils):
+-----------------------
+* constants.py
+  - Prompts for SQL generation and narrative summarization.
+  - Declares the validation blacklist of dangerous commands.
+* helpers.py
+  - Performs string cleanups to purge standard markdown blocks (e.g. ```sql ... ```)
+    produced by LLM hallucinations.
+
+---
+
+5. END-TO-END DATA AND LOGIC FLOW (STEP-BY-STEP)
+================================================================================
+When a user opens AskQL and executes a query, the application runs the following path:
+
+  +-------------------+
+  | 1. App Startup    | -> Configures page parameters via `setup_page_config` in utils/helpers.py.
+  +-------------------+    Initializes services inside Session State.
+            |
+            v
+  +-------------------+
+  | 2. DB Connection  | -> User keys in credentials in components/sidebar.py.
+  +-------------------+    `database_service.py` connects and verifies using SQLAlchemy.
+            |
+            v
+  +-------------------+
+  | 3. Schema Scan    | -> `schema_service.py` maps database tables and fields, generating 
+  +-------------------+    a context string representing the schema structure.
+            |
+            v
+  +-------------------+
+  | 4. User Prompt    | -> User inputs a natural language question (e.g., "sales trend by region").
+  +-------------------+
+            |
+            v
+  +-------------------+
+  | 5. SQL Generation | -> `gemini_service.py` sends the custom schema + question to Gemini.
+  +-------------------+    Returns a raw SQL query. Cleaned using `clean_sql` in utils/helpers.py.
+            |
+            v
+  +-------------------+
+  | 6. Safety Check   | -> `sql_validator.py` ensures the query is non-destructive (SELECT or WITH only).
+  +-------------------+
+            |
+            v
+  +-------------------+
+  | 7. Execution      | -> `database_service.py` runs the SQL query, returning a Pandas DataFrame.
+  +-------------------+
+            |
+            v
+  +-------------------+
+  | 8. Visualization  | -> `visualization_service.py` selects a chart type based on columns.
+  +-------------------+    Renders via `components/charts.py`.
+            |
+            v
+  +-------------------+
+  | 9. Summarization  | -> `insight_service.py` parses results, generating narrative explanations.
+  +-------------------+    Both the results and AI summary render on the UI dashboard.
+
+---
+
+6. INTERCONNECTION AND INTERACTION GRAPH
+================================================================================
+Below is the communication map showing how the various modules are interconnected:
+
+                 +--------------------------------------+
+                 |               app.py                 |
+                 +----+---------+----------+---------+--+
+                      |         |          |         |
+      +---------------+         |          |         +-----------------+
+      |                         |          |                           |
+      v                         v          v                           v
++---------------+  +--------------+  +---------------+           +---------------+
+| components/   |  | components/  |  | components/   |           | components/   |
+| sidebar.py    |  | query_input  |  | result_table  |           | charts.py     |
++-------+-------+  +----+---------+  +-------+-------+           +-------+-------+
+        |               |                    ^                           ^
+        | Session       | User               | Renders                   | Renders
+        | State         | Query              | DataFrame                 | Figure
+        v               v                    |                           |
++-------+-------+  +----+---------+          |                           |
+| services/     |  | services/    |----------+                           |
+| database_     |  | gemini_      |                                      |
+| service.py    |  | service.py   |-------+                              |
++-------+-------+  +--------------+       |                              |
+        ^               ^                 v                              |
+        | Engine        | Schema   +------+--------+                     |
+        | Inspect       | Context  | services/     |---------------------+
+        v               |          | visualization | Selects optimal chart
++-------+-------+       |          | service.py    |
+| services/     |-------+          +------+--------+
+| schema_       |                         |
+| service.py    |                         v
++---------------+                  +------+--------+
+                                   | services/     | -> Uses gemini to summarize
+                                   | insight_      |    tabular results in English
+                                   | service.py    |
+                                   +---------------+
+
+---
+
+7. HOW TO ADD FUTURE FEATURES
+================================================================================
+If you wish to extend the platform to include the features you identified, here is
+how they would integrate into the existing directory layout:
+
+1. AI Chatbot
+   - Components needed: Add a new component `components/chatbot.py`.
+   - Implementation: Replace `st.text_area` with Streamlit's conversational elements
+     (`st.chat_input` and `st.chat_message`). Maintain chat logs in `st.session_state['chat_history']`.
+   - Service mapping: Extend `gemini_service.py` to support multi-turn history parameters.
+
+2. Automatic Dashboard Generation (with a single prompt)
+   - Components needed: Add `components/dashboard_grid.py`.
+   - Implementation: Update `gemini_service.py` to output multiple SQL queries in JSON format 
+     (e.g., query for metrics, query for charts). Loop through and render them in a multi-column 
+     grid using `st.columns()`.
+
+3. AI-Generated Insights
+   - Currently fully implemented under `services/insight_service.py`. It is loaded inside 
+     `app.py` and output dynamically following query execution.
+
+4. Automatic Chart Selection
+   - Currently fully implemented under `services/visualization_service.py`. It reads data 
+     column types and picks the optimal Plotly layout dynamically.
+================================================================================
