@@ -15,6 +15,7 @@ def render_sidebar():
             dbname = st.text_input("Database Name")
             user = st.text_input("Username")
             password = st.text_input("Password", type="password")
+            require_ssl = st.checkbox("Require SSL (needed for Neon, Supabase, Cloud DBs)", value=(host not in ["localhost", "127.0.0.1"]))
             
             if st.button("Connect", use_container_width=True):
                 if not all([host, port, dbname, user, password]):
@@ -25,7 +26,8 @@ def render_sidebar():
                     enc_password = urllib.parse.quote(password)
                     enc_host = urllib.parse.quote(host)
                     enc_dbname = urllib.parse.quote(dbname)
-                    db_url = f"postgresql://{enc_user}:{enc_password}@{enc_host}:{port}/{enc_dbname}"
+                    ssl_param = "?sslmode=require" if require_ssl else ""
+                    db_url = f"postgresql://{enc_user}:{enc_password}@{enc_host}:{port}/{enc_dbname}{ssl_param}"
                     st.session_state['db_url'] = db_url
                     st.session_state['connect_trigger'] = True
 
